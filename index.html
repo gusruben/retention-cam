@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>retention cam</title>
+<style>
+  @font-face {
+    font-family: "Departure Mono";
+    src: url("fonts/DepartureMono-Regular.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: block;
+  }
+
+  @property --hue {
+    syntax: "<angle>";
+    inherits: false;
+    initial-value: 0deg;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #000;
+    overflow: hidden;
+    width: 100%;
+    height: 100%;
+    font-family: "Impact", "Arial Black", system-ui, sans-serif;
+  }
+
+  /* 16:9 stage scaled to fit the viewport */
+  #stage {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    width: 1920px;
+    height: 1080px;
+    transform: translate(-50%, -50%) scale(var(--scale, 1));
+    transform-origin: center center;
+    background: #000;
+    overflow: hidden;
+  }
+
+  #shader-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* Solid-color rainbow border that cycles hue */
+  .frame {
+    --thickness: 7px;
+    --speed: 6s;
+    position: absolute;
+    background: hsl(var(--hue), 100%, 50%);
+    padding: var(--thickness);
+    animation: huecycle var(--speed) linear infinite;
+    animation-delay: var(--delay, 0s);
+  }
+
+  .frame > video {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: #000;
+  }
+
+  .frame.circle {
+    border-radius: 50%;
+  }
+  .frame.circle > video {
+    border-radius: 50%;
+  }
+
+  @keyframes huecycle {
+    to { --hue: 360deg; }
+  }
+
+  /* Video positions on the 1920x1080 stage */
+  /* Portrait cascade. */
+  #slime    { left:   30px; top:   60px; width: 384px; height: 682px; --speed: 5.7s;  --delay: -0.2s;  z-index: 4; }
+  #subway   { left:  200px; top:  240px; width: 336px; height: 600px; --speed: 7.3s;  --delay: -1.4s;  z-index: 5; }
+  #gta      { left:  370px; top:  420px; width: 336px; height: 600px; --speed: 6.1s;  --delay: -2.6s;  z-index: 6; }
+  /* spiral: bottom-left corner pinned at (780, 1040). */
+  #spiral   { left:  780px; top:  540px; width: 500px; height: 500px; --speed: 8.5s;  --delay: -3.1s;  z-index: 7; }
+  /* Right-side videos shifted up; prototype overlaps family guy from
+     the left (and now sits on top of it: z-index 5 > 4). */
+  #familyguy{ left: 1340px; top:  370px; width: 540px; height: 304px; --speed: 6.7s;  --delay: -0.8s;  z-index: 4; }
+  #prototype{ left:  950px; top:  200px; width: 540px; height: 304px; --speed: 5.3s;  --delay: -2.0s;  z-index: 5; }
+  #undercity{ left: 1380px; top:  680px; width: 540px; height: 304px; --speed: 6.9s;  --delay: -4.2s;  z-index: 5; }
+
+  /* RETENTION CAM banner */
+  #title {
+    position: absolute;
+    left: 720px;
+    top: 24px;
+    z-index: 9;
+    padding: 14px 28px;
+    color: #fff;
+    font-family: "Departure Mono", ui-monospace, monospace;
+    font-size: 110px;
+    letter-spacing: 2px;
+    line-height: 1;
+    text-transform: uppercase;
+    white-space: nowrap;
+    background: #f00; /* set by JS */
+  }
+
+  /* DVD-bouncing stasis logo */
+  /* Stasis logo: rendered as a colored mask so the fill can be set per bounce.
+     Source aspect 1151:233; height kept proportional. */
+  #stasis {
+    position: absolute;
+    width: 660px;
+    height: 134px;
+    background-color: #fff;
+    -webkit-mask: url("content/stasis-logo-crop.png") center / contain no-repeat;
+            mask: url("content/stasis-logo-crop.png") center / contain no-repeat;
+    z-index: 20;
+    pointer-events: none;
+    will-change: transform;
+  }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="shader-canvas"></canvas>
+
+    <div id="title">RETENTION CAM</div>
+
+    <div class="frame" id="slime">
+      <video src="content/slime.mp4" autoplay muted loop playsinline></video>
+    </div>
+    <div class="frame" id="subway">
+      <video src="content/subway_surfers.mp4" autoplay muted loop playsinline></video>
+    </div>
+    <div class="frame" id="gta">
+      <video src="content/gta.mp4" autoplay muted loop playsinline></video>
+    </div>
+    <div class="frame circle" id="spiral">
+      <video src="content/spiral.mp4" autoplay muted loop playsinline></video>
+    </div>
+    <div class="frame" id="familyguy">
+      <video src="content/family_guy.mp4" autoplay muted loop playsinline></video>
+    </div>
+    <div class="frame" id="prototype">
+      <video src="content/hackclub_prototype.mp4" autoplay muted loop playsinline></video>
+    </div>
+    <div class="frame" id="undercity">
+      <video src="content/hackclub_undercity.mp4" autoplay muted loop playsinline></video>
+    </div>
+
+    <div id="stasis" role="img" aria-label="stasis"></div>
+  </div>
+
+<script>
+'use strict';
+
+// ---------- Fit stage to viewport (preserve 16:9) ----------
+function fit() {
+  const sw = window.innerWidth, sh = window.innerHeight;
+  const s = Math.min(sw / 1920, sh / 1080);
+  document.getElementById('stage').style.setProperty('--scale', s);
+}
+fit();
+window.addEventListener('resize', fit);
+
+// ---------- WebGL psychedelic rainbow shader ----------
+(function shader() {
+  const canvas = document.getElementById('shader-canvas');
+  const gl = canvas.getContext('webgl', { antialias: false, premultipliedAlpha: false });
+  canvas.width  = 1920;
+  canvas.height = 1080;
+
+  const vs = `
+    attribute vec2 p;
+    void main() { gl_Position = vec4(p, 0.0, 1.0); }
+  `;
+  const fs = `
+    precision highp float;
+    uniform vec2  uRes;
+    uniform float uTime;
+
+    // Smooth interpolation through an ordered red/pink/purple palette
+    // with orange at the low end and blue at the high end.
+    vec3 palette(float s) {
+      s = clamp(s, 0.0, 1.0);
+      vec3 c0 = vec3(0.95, 0.40, 0.10); // orange
+      vec3 c1 = vec3(0.95, 0.10, 0.30); // red
+      vec3 c2 = vec3(1.00, 0.30, 0.60); // pink
+      vec3 c3 = vec3(0.55, 0.10, 0.75); // purple
+      vec3 c4 = vec3(0.15, 0.20, 0.85); // blue
+      float x = s * 4.0;
+      if (x < 1.0) return mix(c0, c1, x);
+      if (x < 2.0) return mix(c1, c2, x - 1.0);
+      if (x < 3.0) return mix(c2, c3, x - 2.0);
+      return mix(c3, c4, x - 3.0);
+    }
+
+    void main() {
+      vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y;
+      float t = uTime * 0.45;
+
+      // Three-layer warp -> richer turbulent detail. Each layer chains off the
+      // previous so we get fractal-ish structure without using fract() anywhere
+      // (which would produce hard palette jumps).
+      vec2 q = uv * 1.4;
+      q.x += 0.55 * sin(uv.y * 1.8 + t * 1.0);
+      q.y += 0.55 * cos(uv.x * 1.5 - t * 0.9);
+      q.x += 0.40 * sin(q.y * 3.2 - t * 1.3);
+      q.y += 0.40 * cos(q.x * 2.9 + t * 1.2);
+      q.x += 0.25 * sin(q.y * 5.5 + t * 1.6);
+      q.y += 0.25 * cos(q.x * 5.1 - t * 1.5);
+
+      // Bounded sum of sines -> smooth palette index.
+      float v = 0.5
+              + 0.10 * sin(q.x * 2.4 + t * 1.2)
+              + 0.10 * cos(q.y * 2.8 - t * 1.0)
+              + 0.10 * sin((q.x + q.y) * 1.9 + t * 0.8)
+              + 0.10 * cos((q.x - q.y) * 2.3 - t * 0.7)
+              + 0.05 * sin(length(q) * 4.5 - t * 1.4);
+      v = clamp(v, 0.0, 1.0);
+
+      vec3 col = palette(v);
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `;
+
+  function compile(type, src) {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      console.error(gl.getShaderInfoLog(sh));
+    }
+    return sh;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, vs));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -1,-1,  1,-1, -1, 1,
+    -1, 1,  1,-1,  1, 1,
+  ]), gl.STATIC_DRAW);
+  const pLoc = gl.getAttribLocation(prog, 'p');
+  gl.enableVertexAttribArray(pLoc);
+  gl.vertexAttribPointer(pLoc, 2, gl.FLOAT, false, 0, 0);
+
+  const uRes  = gl.getUniformLocation(prog, 'uRes');
+  const uTime = gl.getUniformLocation(prog, 'uTime');
+  gl.viewport(0, 0, canvas.width, canvas.height);
+
+  const start = performance.now();
+  function frame() {
+    const t = (performance.now() - start) / 1000;
+    gl.uniform2f(uRes, canvas.width, canvas.height);
+    gl.uniform1f(uTime, t);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    requestAnimationFrame(frame);
+  }
+  frame();
+})();
+
+// ---------- RETENTION CAM color flash (RGB, ~3x/sec, hard cut) ----------
+(function titleFlash() {
+  const el = document.getElementById('title');
+  const colors = ['#ff0000', '#00d000', '#0040ff'];
+  let i = 0;
+  el.style.background = colors[0];
+  setInterval(() => {
+    i = (i + 1) % colors.length;
+    el.style.background = colors[i];
+  }, 240);
+})();
+
+// ---------- Stasis logo: pure-deterministic DVD bounce ----------
+//
+// Independent triangle waves on X and Y with COPRIME periods. Every wall hit
+// is a perfect reflection (no random perturbation, no weird drift), and a
+// corner hit happens every LCM(Tx, Ty) seconds.
+//
+//   Ty/Tx = 30/41 (coprime) -> corner every (30 * Tx)/2 seconds.
+//   With Tx=8s that's 120s = 2 min.
+//   The 30:41 ratio is chosen so |vx| ~= |vy| (-> ~45-degree motion),
+//   given the bouncing area is 1260x946 px.
+//
+// Color randomized on every wall hit via a seeded RNG keyed off bounce index,
+// so the whole animation is identical every load and can be recorded cleanly.
+(function bounce() {
+  const logo = document.getElementById('stasis');
+  const STAGE_W = 1920, STAGE_H = 1080;
+  const lw = 660, lh = 134;
+  const W = STAGE_W - lw, H = STAGE_H - lh;
+
+  const Tx = 8.0;
+  const Ty = 240 / 41;        // = 8 * 30/41 ~= 5.854s. Ty/Tx = 30/41 (coprime).
+  const phaseX = 1.7;         // start offsets so first frame isn't at a corner
+  const phaseY = 2.3;
+
+  function mulberry32(a) {
+    return function () {
+      a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const rngColor = mulberry32(0xC0FFEE);
+  function nextColor() {
+    return `hsl(${Math.floor(rngColor() * 360)}, 72%, 60%)`;
+  }
+  logo.style.backgroundColor = nextColor();
+
+  // Triangle wave: 0 -> 1 -> 0 with period T.
+  function tri(t, T) {
+    const u = ((t / T) % 1 + 1) % 1;
+    return u < 0.5 ? u * 2 : 2 - u * 2;
+  }
+
+  // Total bounces of the X wave between time 0 and t: floor(2 * (t + phase) / T)
+  function wallCount(t, T, phase) {
+    return Math.floor(2 * (t + phase) / T);
+  }
+
+  let lastBounceTotal = -1;
+
+  function tick(now) {
+    const t = now / 1000;
+    const x = tri(t + phaseX, Tx) * W;
+    const y = tri(t + phaseY, Ty) * H;
+
+    // Whenever total wall hits increases, recolor (corner hit = 2 hits in 1 frame).
+    const total = wallCount(t, Tx, phaseX) + wallCount(t, Ty, phaseY);
+    if (total !== lastBounceTotal) {
+      const steps = Math.max(1, total - lastBounceTotal);
+      for (let k = 0; k < steps; k++) logo.style.backgroundColor = nextColor();
+      lastBounceTotal = total;
+    }
+
+    logo.style.transform = `translate(${x}px, ${y}px)`;
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+
+// ---------- Video start-time stagger ----------
+// Slight offsets so they're not all on frame 0 at page load.
+const VIDEO_SETTINGS = {
+  slime:     { offset: 12,  rate: 1.0 },
+  subway:    { offset: 30,  rate: 1.0 },
+  gta:       { offset: 240, rate: 1.0 },
+  spiral:    { offset: 18,  rate: 1.0 },
+  familyguy: { offset: 60,  rate: 1.5 },
+  prototype: { offset: 120, rate: 2.0 },
+  undercity: { offset: 80,  rate: 2.0 },
+};
+for (const [id, cfg] of Object.entries(VIDEO_SETTINGS)) {
+  const v = document.querySelector('#' + id + ' > video');
+  if (!v) continue;
+  v.playbackRate = cfg.rate;
+  const apply = () => {
+    v.playbackRate = cfg.rate; // reapply, some browsers reset on load
+    if (isFinite(v.duration) && v.duration > 0) {
+      v.currentTime = cfg.offset % v.duration;
+    }
+  };
+  if (v.readyState >= 1) apply();
+  else v.addEventListener('loadedmetadata', apply, { once: true });
+}
+</script>
+</body>
+</html>
