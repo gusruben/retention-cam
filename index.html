@@ -112,6 +112,34 @@
   /* DVD-bouncing stasis logo */
   /* Stasis logo: rendered as a colored mask so the fill can be set per bounce.
      Source aspect 1151:233; height kept proportional. */
+  /* Loading overlay — covers everything until all videos can play */
+  #loader {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity .45s ease;
+  }
+  #loader.hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+  #loader::before {
+    content: "";
+    width: 84px;
+    height: 84px;
+    border: 7px solid rgba(255, 255, 255, 0.15);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spinner 0.9s linear infinite;
+  }
+  @keyframes spinner {
+    to { transform: rotate(360deg); }
+  }
+
   #stasis {
     position: absolute;
     width: 660px;
@@ -126,6 +154,7 @@
 </style>
 </head>
 <body>
+  <div id="loader"></div>
   <div id="stage">
     <canvas id="shader-canvas"></canvas>
 
@@ -362,6 +391,21 @@ const VIDEO_SETTINGS = {
   prototype: { offset: 120, rate: 2.0 },
   undercity: { offset: 80,  rate: 2.0 },
 };
+// ---------- Hide loading overlay once all videos are ready ----------
+(function loader() {
+  const videos = Array.from(document.querySelectorAll('video'));
+  const ready = v => new Promise(resolve => {
+    // HAVE_CURRENT_DATA (2) -- first frame is decoded.
+    if (v.readyState >= 2) return resolve();
+    v.addEventListener('loadeddata', resolve, { once: true });
+  });
+  const fontsReady = document.fonts ? document.fonts.ready : Promise.resolve();
+  Promise.all([fontsReady, ...videos.map(ready)]).then(() => {
+    // small grace period so first frames are visible underneath
+    setTimeout(() => document.getElementById('loader').classList.add('hidden'), 120);
+  });
+})();
+
 for (const [id, cfg] of Object.entries(VIDEO_SETTINGS)) {
   const v = document.querySelector('#' + id + ' > video');
   if (!v) continue;
